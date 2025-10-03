@@ -611,21 +611,6 @@ BEGIN TRAN;
         (20240601, 'MN001', 'DM020', 'IND006', 480000, 468000, 12000, 2.5, 68.5),
         (20240601, 'CO001', 'DM001', 'IND007', 465000, 453000, 12000, 2.6, 69.1);
 
-    /* =====================
-       4) Read/Write User
-       ===================== */
-    IF NOT EXISTS (SELECT 1 FROM sys.database_principals WHERE name = N'UnemploymentDB_rw')
-    BEGIN
-        CREATE USER [UnemploymentDB_rw] WITH PASSWORD = N'TechmapGroup4RW!';
-    END
-    ELSE
-    BEGIN
-        ALTER USER [UnemploymentDB_rw] WITH PASSWORD = N'TechmapGroup4RW!';
-    END;
-
-    GRANT CONNECT TO [UnemploymentDB_rw];
-    ALTER ROLE db_datareader ADD MEMBER [UnemploymentDB_rw];
-    ALTER ROLE db_datawriter ADD MEMBER [UnemploymentDB_rw];
 
 COMMIT TRAN;
 END TRY
