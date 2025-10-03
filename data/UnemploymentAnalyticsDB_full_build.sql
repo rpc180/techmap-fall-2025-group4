@@ -22,6 +22,84 @@ GO
 
 USE UnemploymentAnalyticsDB;
 GO
+/* =========================================================================
+   STAR SCHEMA PRECLEAN (any schema):
+   1) Drop all FKs that reference our target tables
+   2) Drop the target tables (fact + dims) in all schemas
+   Paste this AFTER: USE UnemploymentAnalyticsDB;  and BEFORE any CREATEs
+   ========================================================================= */
+SET NOCOUNT ON;
+
+DECLARE @targets TABLE (table_name sysname);
+INSERT INTO @targets (table_name) VALUES
+('unemployment_statistics'),
+('dim_date'),
+('dim_geography'),
+('dim_demographics'),
+('dim_industry');
+
+-------------------------------------------------------------------------------
+-- 1) Drop ALL foreign keys that reference any of the target tables (any schema)
+-------------------------------------------------------------------------------
+DECLARE @sql NVARCHAR(MAX);
+
+WITH ref_fks AS (
+    SELECT
+        fk_schema = sch_p.name,
+        fk_table  = t_p.name,
+        fk_name   = fk.name
+    FROM sys.foreign_keys fk
+    JOIN sys.tables t_p            ON t_p.object_id = fk.parent_object_id
+    JOIN sys.schemas sch_p         ON sch_p.schema_id = t_p.schema_id
+    JOIN sys.tables t_r            ON t_r.object_id = fk.referenced_object_id
+    JOIN sys.schemas sch_r         ON sch_r.schema_id = t_r.schema_id
+    WHERE t_r.name IN (SELECT table_name FROM @targets)
+)
+SELECT @sql = STRING_AGG(
+    'ALTER TABLE ' + QUOTENAME(fk_schema) + '.' + QUOTENAME(fk_table) +
+    ' DROP CONSTRAINT ' + QUOTENAME(fk_name) + ';'
+, CHAR(10))
+FROM ref_fks;
+
+IF @sql IS NOT NULL AND LEN(@sql) > 0
+BEGIN
+    PRINT N'Dropping referencing foreign keys...';
+    EXEC sys.sp_executesql @sql;
+END
+ELSE
+BEGIN
+    PRINT N'No foreign keys referencing target tables found.';
+END
+
+------------------------------------------------------------
+-- 2) Drop the target tables across ALL schemas (if exist)
+--    (Fact first, then dims — order is safe after FK drops)
+------------------------------------------------------------
+SET @sql = N'';
+
+;WITH to_drop AS (
+    SELECT QUOTENAME(s.name) + '.' + QUOTENAME(t.name) AS full_name, t.name AS bare_name
+    FROM sys.tables t
+    JOIN sys.schemas s ON s.schema_id = t.schema_id
+    WHERE t.name IN (SELECT table_name FROM @targets)
+)
+SELECT @sql = COALESCE(@sql + CHAR(10), N'') +
+    'DROP TABLE ' + full_name + ';'
+FROM to_drop
+ORDER BY CASE bare_name
+            WHEN 'unemployment_statistics' THEN 0
+            ELSE 1
+         END;  -- ensure fact first if it exists
+
+IF @sql IS NOT NULL AND LEN(@sql) > 0
+BEGIN
+    PRINT N'Dropping target tables (any schema)...';
+    EXEC sys.sp_executesql @sql;
+END
+ELSE
+BEGIN
+    PRINT N'No target tables found to drop.';
+END
 
 SET XACT_ABORT ON;
 BEGIN TRY
